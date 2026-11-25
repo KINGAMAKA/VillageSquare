@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Village Square</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef1f6;--card:#fff;--ink:#16203a;--mute:#6b7692;--line:#d9deea;--brand:#2b3a8f;--pop:#f2b632;--me:#dfe5ff}
+@media(prefers-color-scheme:dark){:root{--bg:#10142a;--card:#1a2040;--ink:#eef0fa;--mute:#98a1c4;--line:#2c3562;--brand:#8ea0ff;--pop:#f2b632;--me:#27316b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 "Bricolage Grotesque",system-ui,sans-serif}
+.wrap{max-width:640px;margin:0 auto;padding:16px}
+h1{font-weight:800;font-size:28px;margin:8px 0 4px}
+.mute{color:var(--mute);font-size:14px}
+input,textarea,button{font:inherit;color:inherit}
+input,textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--card);margin:6px 0}
+button{cursor:pointer;border:0;border-radius:10px;padding:10px 16px;background:var(--brand);color:#fff;font-weight:600}
+@media(prefers-color-scheme:dark){button{color:#10142a}}
+button.ghost{background:transparent;color:var(--brand);padding:6px 8px}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--pop)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:10px 0}
+.top{display:flex;justify-content:space-between;align-items:center}
+nav{display:flex;gap:6px;margin:12px 0;position:sticky;top:0;background:var(--bg);padding:6px 0;z-index:2}
+nav button{flex:1;background:var(--card);color:var(--ink);border:1px solid var(--line)}
+nav button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.who{font-weight:800}
+.row{display:flex;gap:8px;align-items:center}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--line);flex:none}
+.dot.on{background:#2fb36a}
+.person{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.chat{height:46vh;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:4px}
+.msg{max-width:80%;padding:8px 12px;border-radius:14px;background:var(--card);border:1px solid var(--line);align-self:flex-start;overflow-wrap:anywhere}
+.msg.me{align-self:flex-end;background:var(--me)}
+.err{color:#d6335a;font-size:14px;min-height:20px}
+.hide{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- LOGIN -->
+<div id="auth">
+  <h1>Village Square</h1>
+  <p class="mute">Sign up, post, keep private notes, and chat with whoever is online.</p>
+  <div class="card">
+    <input id="username" placeholder="Username (sign up only)" autocomplete="username">
+    <input id="email" type="email" placeholder="Email" autocomplete="email">
+    <input id="password" type="password" placeholder="Password (6+ characters)" autocomplete="current-password">
+    <div class="err" id="autherr"></div>
+    <div class="row">
+      <button id="loginBtn">Log in</button>
+      <button id="signupBtn" class="ghost">Create account</button>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="hide">
+  <div class="top">
+    <div><h1 id="hello"></h1><div class="mute" id="onlineCount"></div></div>
+    <button class="ghost" id="logout">Log out</button>
+  </div>
+  <nav>
+    <button data-tab="feed" class="on">Everyone</button>
+    <button data-tab="mine">Only me</button>
+    <button data-tab="people">People</button>
+  </nav>
+
+  <section id="tab-feed">
+    <div class="card">
+      <textarea id="feedText" rows="2" maxlength="500" placeholder="Share something with everyone"></textarea>
+      <button id="feedPost">Post</button>
+    </div>
+    <div id="feedList"></div>
+  </section>
+
+  <section id="tab-mine" class="hide">
+    <div class="card">
+      <textarea id="mineText" rows="2" maxlength="500" placeholder="Write a note only you can see"></textarea>
+      <button id="minePost">Save note</button>
+    </div>
+    <div id="mineList"></div>
+  </section>
+
+  <section id="tab-people" class="hide">
+    <div id="peopleList"></div>
+    <div id="chatBox" class="hide card">
+      <div class="top"><div class="who" id="chatWith"></div><button class="ghost" id="chatClose">Close</button></div>
+      <div class="chat" id="chatLog"></div>
+      <div class="row"><input id="chatText" maxlength="500" placeholder="Write a message"><button id="chatSend">Send</button></div>
+    </div>
+  </section>
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.50.0/dist/umd/supabase.js"></script>
+<script>
+// ====== PASTE YOUR SUPABASE DETAILS HERE (Project Settings > API) ======
+const SUPABASE_URL = "https://juctbospzqplnhgtutiq.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_xnR_uSYmA2XDz3rDrO_AOA_s7ofvh8g"; // the public "anon" key only, never the service key
+// =======================================================================
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let me = null, myName = "", people = [], online = new Set(), chatPeer = null, presence = null, msgSub = null;
+
+// ---------- auth ----------
+$("signupBtn").onclick = async () => {
+  const username = $("username").value.trim();
+  if (username.length < 2) return $("autherr").textContent = "Pick a username with at least 2 characters.";
+  const { error } = await sb.auth.signUp({ email: $("email").value.trim(), password: $("password").value, options: { data: { username } } });
+  $("autherr").textContent = error ? error.message : "Account created. If nothing happens, check your email to confirm, then log in.";
+};
+$("loginBtn").onclick = async () => {
+  const { error } = await sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("password").value });
+  if (error) $("autherr").textContent = error.message;
+};
+$("logout").onclick = () => sb.auth.signOut();
+
+sb.auth.onAuthStateChange((_e, session) => {
+  if (session && (!me || me.id !== session.user.id)) start(session.user);
+  if (!session) stop();
+});
+
+async function start(user) {
+  me = user;
+  const { data } = await sb.from("profiles").select("username").eq("id", me.id).single();
+  myName = data ? data.username : "friend";
+  $("hello").textContent = "Hi, " + myName;
+  $("auth").classList.add("hide"); $("app").classList.remove("hide");
+  loadPosts(); loadPeople(); joinPresence(); listenMessages();
+}
+function stop() {
+  me = null; chatPeer = null;
+  if (presence) sb.removeChannel(presence);
+  if (msgSub) sb.removeChannel(msgSub);
+  $("app").classList.add("hide"); $("auth").classList.remove("hide");
+}
+
+// ---------- tabs ----------
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
+  ["feed", "mine", "people"].forEach(t => $("tab-" + t).classList.toggle("hide", t !== b.dataset.tab));
+  if (b.dataset.tab === "people") loadPeople();
+  else loadPosts();
+});
+
+// ---------- posts (public feed + private notes, same table) ----------
+async function addPost(textId, isPrivate) {
+  const body = $(textId).value.trim(); if (!body) return;
+  const { error } = await sb.from("posts").insert({ body, is_private: isPrivate });
+  if (error) return alert(error.message);
+  $(textId).value = ""; loadPosts();
+}
+$("feedPost").onclick = () => addPost("feedText", false);
+$("minePost").onclick = () => addPost("mineText", true);
+
+async function loadPosts() {
+  const { data: posts, error } = await sb.from("posts").select("*").order("created_at", { ascending: false }).limit(100);
+  if (error) return alert(error.message);
+  if (!people.length) await loadPeople(true);
+  const name = id => (people.find(p => p.id === id) || {}).username || "someone";
+  const card = p => `<div class="card"><div class="top"><span class="who">${esc(name(p.user_id))}</span><span class="mute">${new Date(p.created_at).toLocaleString()}</span></div>
+    <div id="b${p.id}" style="white-space:pre-wrap">${esc(p.body)}</div>
+    ${p.user_id === me.id ? `<div class="row"><button class="ghost" onclick="editPost(${p.id})">Edit</button><button class="ghost" onclick="delPost(${p.id})">Delete</button></div>` : ""}</div>`;
+  const feed = posts.filter(p => !p.is_private), mine = posts.filter(p => p.is_private && p.user_id === me.id);
+  $("feedList").innerHTML = feed.map(card).join("") || '<p class="mute">Nothing here yet. Write the first post.</p>';
+  $("mineList").innerHTML = mine.map(card).join("") || '<p class="mute">No private notes yet. Only you can see what you save here.</p>';
+}
+window.editPost = async id => {
+  const old = $("b" + id).textContent;
+  const body = prompt("Edit your text", old);
+  if (body === null || !body.trim()) return;
+  const { error } = await sb.from("posts").update({ body: body.trim() }).eq("id", id);
+  if (error) alert(error.message); loadPosts();
+};
+window.delPost = async id => {
+  if (!confirm("Delete this?")) return;
+  await sb.from("posts").delete().eq("id", id); loadPosts();
+};
+
+// ---------- people + who's online ----------
+async function loadPeople(quiet) {
+  const { data } = await sb.from("profiles").select("id,username").order("username");
+  people = data || [];
+  if (!quiet) renderPeople();
+}
+function renderPeople() {
+  const others = people.filter(p => p.id !== me.id).sort((a, b) => (online.has(b.id) - online.has(a.id)));
+  $("peopleList").innerHTML = others.map(p => `<div class="card person"><div class="row"><span class="dot ${online.has(p.id) ? "on" : ""}"></span><span class="who">${esc(p.username)}</span></div>
+    <button onclick="openChat('${p.id}')">Message</button></div>`).join("") || '<p class="mute">No one else has joined yet. Invite a friend to sign up.</p>';
+  $("onlineCount").textContent = online.size + " online now";
+}
+function joinPresence() {
+  presence = sb.channel("square", { config: { presence: { key: me.id } } });
+  presence.on("presence", { event: "sync" }, () => { online = new Set(Object.keys(presence.presenceState())); renderPeople(); })
+    .subscribe(async s => { if (s === "SUBSCRIBED") await presence.track({ at: Date.now() }); });
+}
+
+// ---------- chat ----------
+window.openChat = async id => {
+  chatPeer = people.find(p => p.id === id);
+  $("chatWith").textContent = chatPeer.username; $("chatBox").classList.remove("hide");
+  await loadChat(); $("chatBox").scrollIntoView({ behavior: "smooth" });
+};
+$("chatClose").onclick = () => { chatPeer = null; $("chatBox").classList.add("hide"); };
+async function loadChat() {
+  if (!chatPeer) return;
+  const { data } = await sb.from("messages").select("*")
+    .or(`and(sender_id.eq.${me.id},recipient_id.eq.${chatPeer.id}),and(sender_id.eq.${chatPeer.id},recipient_id.eq.${me.id})`)
+    .order("created_at").limit(200);
+  $("chatLog").innerHTML = (data || []).map(m => `<div class="msg ${m.sender_id === me.id ? "me" : ""}">${esc(m.body)}</div>`).join("") || '<p class="mute">Say hello.</p>';
+  $("chatLog").scrollTop = 1e9;
+}
+async function sendMsg() {
+  const body = $("chatText").value.trim(); if (!body || !chatPeer) return;
+  const { error } = await sb.from("messages").insert({ recipient_id: chatPeer.id, body });
+  if (error) return alert(error.message);
+  $("chatText").value = ""; loadChat();
+}
+$("chatSend").onclick = sendMsg;
+$("chatText").onkeydown = e => { if (e.key === "Enter") sendMsg(); };
+function listenMessages() {
+  msgSub = sb.channel("msgs").on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, p => {
+    if (p.new.recipient_id === me.id || p.new.sender_id === me.id) loadChat();
+  }).subscribe();
+}
+</script>
+</body>
+</html>
